@@ -10,11 +10,13 @@ CRUD-операции: добавление, чтение, изменение и
 Для работы с исходным кодом выполните из корня проекта:
 
 ```powershell
-uv sync
-uv run database
+make install
+make run
 ```
 
-Команда `uv run database` запускает текущий код проекта.
+Команды Makefile используют `uv`: `make install` выполняет `uv sync`,
+а `make run` — `uv run database`. Если GNU Make не установлен,
+используйте эти команды `uv` напрямую. Они запускают текущий код проекта.
 Для установки собранного пакета см. раздел «Сборка и проверка» ниже.
 Команда `project` также поддерживается как второе имя запуска.
 
@@ -140,15 +142,18 @@ data/
 Проверка кода, сборка и проверка метаданных выполняются из корня проекта:
 
 ```powershell
-uv run ruff check .
+make lint
 uv build
 uvx twine check dist/*
 ```
 
+`make lint` выполняет `uv run ruff check .`. Ruff находится в dev-группе
+`[dependency-groups]`, используемой uv.
+
 Установка собранной версии как отдельной команды:
 
 ```powershell
-uv tool install --force --link-mode copy .\dist\primitive_db-0.4.0-py3-none-any.whl
+uv tool install --force --link-mode copy .\dist\primitive_db-0.4.1-py3-none-any.whl
 database
 ```
 
@@ -157,9 +162,27 @@ database
 Если папка инструментов отсутствует в PATH, выполните `uv tool update-shell`
 и откройте новый терминал.
 
+## Структура проекта
+
+```text
+src/primitive_db/
+├── __init__.py
+├── main.py          # точка входа
+├── engine.py        # цикл и обработка команд
+├── core.py          # таблицы и CRUD
+├── utils.py         # чтение и запись JSON
+├── parser.py        # разбор where, set и values
+├── decorators.py    # обработка ошибок, подтверждение, время и кэш
+└── constants.py     # общие настройки и константы
+```
+
+Реализация процедурная, без собственных классов. Из стандартной библиотеки
+используются только `json`, `shlex`, `time` и `os`;
+внешние зависимости программы — `prompt` и `prettytable`.
+
 ## Демонстрация
 
-[![Установка и работа Primitive DB](https://asciinema.org/a/NPAvMkCrc2z8irAP.svg)](https://asciinema.org/a/NPAvMkCrc2z8irAP)
+[![Установка и работа Primitive DB](https://asciinema.org/a/P0q75xg1iZPJZXLG.svg)](https://asciinema.org/a/P0q75xg1iZPJZXLG)
 
 Финальная запись показывает установку пакета, запуск, управление таблицами,
 CRUD, обработку ошибок, замер времени, повторные выборки,

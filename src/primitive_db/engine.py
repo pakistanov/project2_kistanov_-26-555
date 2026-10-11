@@ -1,6 +1,14 @@
 import prompt
 from prettytable import PrettyTable
 
+from primitive_db.constants import (
+    INSERT_VALUES_START,
+    META_FILE,
+    MIN_INSERT_ARGUMENTS,
+    MIN_UPDATE_ARGUMENTS,
+    SET_ASSIGNMENT_STRIDE,
+    UPDATE_WHERE_START,
+)
 from primitive_db.core import (
     create_table,
     delete,
@@ -21,12 +29,10 @@ from primitive_db.parser import (
 from primitive_db.utils import (
     load_metadata,
     load_table_data,
+    remove_table_data,
     save_metadata,
     save_table_data,
-    table_data_path,
 )
-
-METADATA_FILE = "db_meta.json"
 
 
 def print_help():
@@ -50,10 +56,14 @@ def print_help():
 def execute_data_command(metadata, command, arguments):
     """Parse a CRUD command, validate it, and read or save records."""
     if command == "insert":
-        if len(arguments) < 5 or arguments[0] != "into" or arguments[2] != "values":
+        if (
+            len(arguments) < MIN_INSERT_ARGUMENTS
+            or arguments[0] != "into"
+            or arguments[2] != "values"
+        ):
             raise ValueError("Формат: insert into <имя> values (<значение1>, ...).")
         table_name = arguments[1]
-        values = parse_values(arguments[3:])
+        values = parse_values(arguments[INSERT_VALUES_START:])
         data = insert(metadata, table_name, values)
         if data is None:
             return
@@ -77,7 +87,7 @@ def execute_data_command(metadata, command, arguments):
             raise ValueError("Укажите условие: where <столбец> = <значение>.")
         set_clause = None
     elif command == "update":
-        if len(arguments) < 9 or arguments[1] != "set":
+        if len(arguments) < MIN_UPDATE_ARGUMENTS or arguments[1] != "set":
             raise ValueError(
                 "Формат: update <имя> set <столбец> = <значение> where ..."
             )
@@ -85,7 +95,9 @@ def execute_data_command(metadata, command, arguments):
         where_position = next(
             (
                 index
-                for index in range(5, len(arguments), 4)
+                for index in range(
+                    UPDATE_WHERE_START, len(arguments), SET_ASSIGNMENT_STRIDE
+                )
                 if arguments[index] == "where"
             ),
             None,
@@ -158,7 +170,7 @@ def run():
     print_help()
     while True:
         try:
-            metadata = load_metadata(METADATA_FILE)
+            metadata = load_metadata(META_FILE)
         except (OSError, ValueError) as error:
             print(f"Ошибка загрузки метаданных: {error}")
             return
@@ -173,6 +185,7 @@ def run():
 
 @handle_db_errors
 def execute_command(metadata, user_input):
+    """Execute one command; return False only when the user exits."""
     args = tokenize(user_input)
     if not args:
         return True
@@ -208,7 +221,7 @@ def execute_command(metadata, user_input):
         result = create_table(metadata, table_name, arguments[1:])
         if result is not None and not existed and table_name in metadata:
             save_table_data(table_name, [])
-            save_metadata(METADATA_FILE, metadata)
+            save_metadata(META_FILE, metadata)
     elif command == "drop_table":
         if len(arguments) != 1:
             raise ValueError("Формат: drop_table <имя_таблицы>.")
@@ -216,6 +229,6 @@ def execute_command(metadata, user_input):
         existed = table_name in metadata
         result = drop_table(metadata, table_name)
         if result is not None and existed:
-            table_data_path(table_name).unlink(missing_ok=True)
-            save_metadata(METADATA_FILE, metadata)
+            remove_table_data(table_name)
+            save_metadata(META_FILE, metadata)
     return True

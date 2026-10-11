@@ -1,11 +1,13 @@
 import json
-from pathlib import Path
+import os
+
+from primitive_db.constants import DATA_DIR, JSON_INDENT, TEXT_ENCODING
 
 
 def load_metadata(filepath):
-    """Read table schemas, returning an empty database for a missing file."""
+    """Read schemas, returning an empty database for a missing file."""
     try:
-        with open(filepath, encoding="utf-8") as file:
+        with open(filepath, encoding=TEXT_ENCODING) as file:
             data = json.load(file)
     except FileNotFoundError:
         return {}
@@ -20,26 +22,26 @@ def load_metadata(filepath):
 
 
 def save_metadata(filepath, data):
-    """Write UTF-8 JSON, replacing the original only after a complete write."""
-    path = Path(filepath)
-    temporary_path = path.with_name(path.name + ".tmp")
-    with temporary_path.open("w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=4)
+    """Replace a JSON file only after writing its new contents completely."""
+    path = os.fspath(filepath)
+    temporary_path = path + ".tmp"
+    with open(temporary_path, "w", encoding=TEXT_ENCODING) as file:
+        json.dump(data, file, ensure_ascii=False, indent=JSON_INDENT)
         file.write("\n")
-    temporary_path.replace(path)
+    os.replace(temporary_path, path)
 
 
 def table_data_path(table_name):
     """Return the JSON path for a valid table name."""
     if not table_name.isidentifier():
         raise ValueError(f"Некорректное имя таблицы: {table_name}.")
-    return Path("data") / f"{table_name}.json"
+    return os.path.join(DATA_DIR, f"{table_name}.json")
 
 
 def load_table_data(table_name):
     """Load records, returning an empty list when the file is missing."""
     try:
-        with table_data_path(table_name).open(encoding="utf-8") as file:
+        with open(table_data_path(table_name), encoding=TEXT_ENCODING) as file:
             data = json.load(file)
     except FileNotFoundError:
         return []
@@ -51,5 +53,13 @@ def load_table_data(table_name):
 def save_table_data(table_name, data):
     """Save records to data/<table_name>.json."""
     path = table_data_path(table_name)
-    path.parent.mkdir(exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
     save_metadata(path, data)
+
+
+def remove_table_data(table_name):
+    """Remove a table's data file if it exists."""
+    try:
+        os.remove(table_data_path(table_name))
+    except FileNotFoundError:
+        pass
