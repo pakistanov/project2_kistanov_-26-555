@@ -1,4 +1,4 @@
-.PHONY: install run lint
+.PHONY: install run lint build publish-check
 
 install:
 	uv sync
@@ -8,3 +8,9 @@ run:
 
 lint:
 	uv run ruff check .
+
+build:
+	uv build
+
+publish-check: build
+	uv publish --dry-run --trusted-publishing never
