@@ -4,6 +4,7 @@ from primitive_db.engine import run
 
 
 def main():
+    """Start the database command loop."""
     run()
 
 

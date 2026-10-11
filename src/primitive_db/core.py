@@ -1,5 +1,11 @@
 import json
 
+from primitive_db.constants import (
+    DEFAULT_ID_SCHEMA,
+    ID_COLUMN,
+    PYTHON_TYPES,
+    VALID_TYPES,
+)
 from primitive_db.decorators import (
     confirm_action,
     create_cacher,
@@ -8,7 +14,6 @@ from primitive_db.decorators import (
 )
 from primitive_db.utils import load_table_data
 
-SUPPORTED_TYPES = {"int", "str", "bool"}
 cache_result = create_cacher()
 
 
@@ -21,20 +26,20 @@ def create_table(metadata, table_name, columns):
         raise ValueError(f"Некорректное имя таблицы: {table_name}.")
     if not columns:
         raise ValueError("Укажите хотя бы один столбец в формате имя:тип.")
-    schema = ["ID:int"]
+    schema = [DEFAULT_ID_SCHEMA]
     names = set()
     for column in columns:
         parts = column.split(":")
         if len(parts) != 2:
             raise ValueError(f"Некорректный столбец: {column}.")
         name, data_type = parts
-        if not name.isidentifier() or data_type not in SUPPORTED_TYPES:
+        if not name.isidentifier() or data_type not in VALID_TYPES:
             raise ValueError(f"Некорректный столбец или тип: {column}.")
-        normalized_name = "ID" if name.upper() == "ID" else name
+        normalized_name = ID_COLUMN if name.upper() == ID_COLUMN else name
         if normalized_name in names:
             raise ValueError(f'Столбец "{normalized_name}" указан несколько раз.')
         names.add(normalized_name)
-        if normalized_name == "ID":
+        if normalized_name == ID_COLUMN:
             if data_type != "int":
                 raise ValueError("Столбец ID должен иметь тип int.")
         else:
@@ -69,11 +74,10 @@ def validate_clause(metadata, table_name, clause):
     schema = get_schema(metadata, table_name)
     if schema is None:
         return None
-    python_types = {"int": int, "str": str, "bool": bool}
     for name, value in clause.items():
         if name not in schema:
             raise KeyError(name)
-        if type(value) is not python_types[schema[name]]:
+        if type(value) is not PYTHON_TYPES[schema[name]]:
             raise ValueError(
                 f'Столбец "{name}" требует тип {schema[name]}, '
                 f"получено значение {value!r}."
@@ -88,7 +92,7 @@ def insert(metadata, table_name, values):
     schema = get_schema(metadata, table_name)
     if schema is None:
         return None
-    columns = [name for name in schema if name != "ID"]
+    columns = [name for name in schema if name != ID_COLUMN]
     if len(values) != len(columns):
         raise ValueError(
             f"Ожидается {len(columns)} значений без ID, получено {len(values)}."
@@ -97,8 +101,8 @@ def insert(metadata, table_name, values):
     if validate_clause(metadata, table_name, record) is None:
         return None
     data = load_table_data(table_name)
-    new_id = max((row["ID"] for row in data), default=0) + 1
-    data.append({"ID": new_id, **record})
+    new_id = max((row[ID_COLUMN] for row in data), default=0) + 1
+    data.append({ID_COLUMN: new_id, **record})
     return data
 
 
@@ -112,6 +116,7 @@ def select(table_data, where_clause=None):
     )
 
     def find_rows():
+        """Filter records for a cache miss."""
         return [
             row.copy()
             for row in table_data
@@ -130,9 +135,9 @@ def update(table_data, set_clause, where_clause):
         for row in table_data
         if all(row.get(name) == value for name, value in where_clause.items())
     ]
-    if "ID" in set_clause and matching_rows:
-        new_id = set_clause["ID"]
-        other_ids = [row["ID"] for row in table_data if row not in matching_rows]
+    if ID_COLUMN in set_clause and matching_rows:
+        new_id = set_clause[ID_COLUMN]
+        other_ids = [row[ID_COLUMN] for row in table_data if row not in matching_rows]
         if new_id < 1 or len(matching_rows) > 1 or new_id in other_ids:
             raise ValueError("ID должен быть положительным и уникальным.")
     for row in matching_rows:
