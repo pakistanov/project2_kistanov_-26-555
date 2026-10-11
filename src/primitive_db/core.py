@@ -1,156 +1,123 @@
-import json
-
 from primitive_db.constants import (
     DEFAULT_ID_SCHEMA,
     ID_COLUMN,
+    INT_TYPE,
+    INVALID_VALUE_MESSAGE,
     PYTHON_TYPES,
     VALID_TYPES,
 )
-from primitive_db.decorators import (
-    confirm_action,
-    create_cacher,
-    handle_db_errors,
-    log_time,
-)
-from primitive_db.utils import load_table_data
-
-cache_result = create_cacher()
+from primitive_db.decorators import confirm_action, handle_db_errors, log_time
+from primitive_db.utils import valid_table_name
 
 
 @handle_db_errors
 def create_table(metadata, table_name, columns):
-    """Validate a table schema and add it to the metadata."""
+    """Validate columns and add the table schema to metadata."""
     if table_name in metadata:
-        raise ValueError(f'Таблица "{table_name}" уже существует.')
-    if not table_name.isidentifier():
-        raise ValueError(f"Некорректное имя таблицы: {table_name}.")
+        raise ValueError(f'Ошибка: Таблица "{table_name}" уже существует.')
+    if not valid_table_name(table_name):
+        raise ValueError(INVALID_VALUE_MESSAGE.format(value=table_name))
     if not columns:
-        raise ValueError("Укажите хотя бы один столбец в формате имя:тип.")
+        raise ValueError(INVALID_VALUE_MESSAGE.format(value=columns))
     schema = [DEFAULT_ID_SCHEMA]
     names = set()
     for column in columns:
         parts = column.split(":")
         if len(parts) != 2:
-            raise ValueError(f"Некорректный столбец: {column}.")
+            raise ValueError(INVALID_VALUE_MESSAGE.format(value=column))
         name, data_type = parts
         if not name.isidentifier() or data_type not in VALID_TYPES:
-            raise ValueError(f"Некорректный столбец или тип: {column}.")
-        normalized_name = ID_COLUMN if name.upper() == ID_COLUMN else name
-        if normalized_name in names:
-            raise ValueError(f'Столбец "{normalized_name}" указан несколько раз.')
-        names.add(normalized_name)
-        if normalized_name == ID_COLUMN:
-            if data_type != "int":
-                raise ValueError("Столбец ID должен иметь тип int.")
+            raise ValueError(INVALID_VALUE_MESSAGE.format(value=column))
+        if name in names:
+            raise ValueError(f'Ошибка: Столбец "{name}" указан несколько раз.')
+        names.add(name)
+        if name == ID_COLUMN:
+            if data_type != INT_TYPE:
+                raise ValueError(INVALID_VALUE_MESSAGE.format(value=column))
         else:
             schema.append(column)
     metadata[table_name] = schema
-    print(f'Таблица "{table_name}" успешно создана со столбцами: ' + ", ".join(schema))
     return metadata
 
 
 @handle_db_errors
 @confirm_action("удаление таблицы")
 def drop_table(metadata, table_name):
-    """Remove an existing table after user confirmation."""
+    """Remove an existing schema after confirmation."""
     if table_name not in metadata:
-        raise ValueError(f'Таблица "{table_name}" не существует.')
+        raise ValueError(f'Ошибка: Таблица "{table_name}" не существует.')
     del metadata[table_name]
-    print(f'Таблица "{table_name}" успешно удалена.')
     return metadata
 
 
 @handle_db_errors
 def get_schema(metadata, table_name):
-    """Return column names and types for an existing table."""
+    """Return the ordered column names and types of an existing table."""
     if table_name not in metadata:
-        raise ValueError(f'Таблица "{table_name}" не существует.')
+        raise ValueError(f'Ошибка: Таблица "{table_name}" не существует.')
     return dict(column.split(":") for column in metadata[table_name])
 
 
 @handle_db_errors
 def validate_clause(metadata, table_name, clause):
-    """Return True for valid fields or None after reporting an error."""
+    """Check field existence and exact Python value types."""
     schema = get_schema(metadata, table_name)
     if schema is None:
         return None
     for name, value in clause.items():
         if name not in schema:
-            raise KeyError(name)
-        if type(value) is not PYTHON_TYPES[schema[name]]:
             raise ValueError(
-                f'Столбец "{name}" требует тип {schema[name]}, '
-                f"получено значение {value!r}."
+                f'Ошибка: Столбец "{name}" не существует в таблице "{table_name}".'
             )
+        if type(value) is not PYTHON_TYPES[schema[name]]:
+            raise ValueError(INVALID_VALUE_MESSAGE.format(value=repr(value)))
     return True
 
 
 @handle_db_errors
 @log_time
-def insert(metadata, table_name, values):
-    """Validate values and append a record with an automatically generated ID."""
+def insert(metadata, table_name, table_data, values):
+    """Return all records plus a validated new record with an automatic ID."""
     schema = get_schema(metadata, table_name)
     if schema is None:
         return None
     columns = [name for name in schema if name != ID_COLUMN]
     if len(values) != len(columns):
-        raise ValueError(
-            f"Ожидается {len(columns)} значений без ID, получено {len(values)}."
-        )
+        raise ValueError(INVALID_VALUE_MESSAGE.format(value=values))
     record = dict(zip(columns, values))
     if validate_clause(metadata, table_name, record) is None:
         return None
-    data = load_table_data(table_name)
-    new_id = max((row[ID_COLUMN] for row in data), default=0) + 1
-    data.append({ID_COLUMN: new_id, **record})
-    return data
+    new_id = max((row[ID_COLUMN] for row in table_data), default=0) + 1
+    return [row.copy() for row in table_data] + [{ID_COLUMN: new_id, **record}]
+
+
+def matches_where(row, where_clause):
+    """Return whether a record satisfies the equality condition."""
+    return where_clause is None or all(
+        row.get(name) == value for name, value in where_clause.items()
+    )
 
 
 @handle_db_errors
 @log_time
 def select(table_data, where_clause=None):
-    """Cache equal queries against the same contents of a table."""
-    key = (
-        json.dumps(table_data, sort_keys=True, ensure_ascii=False),
-        None if where_clause is None else tuple(sorted(where_clause.items())),
-    )
-
-    def find_rows():
-        """Filter records for a cache miss."""
-        return [
-            row.copy()
-            for row in table_data
-            if where_clause is None
-            or all(row.get(name) == value for name, value in where_clause.items())
-        ]
-
-    return [row.copy() for row in cache_result(key, find_rows)]
+    """Return copies of matching records; engine manages query caching."""
+    return [row.copy() for row in table_data if matches_where(row, where_clause)]
 
 
 @handle_db_errors
 def update(table_data, set_clause, where_clause):
-    """Update matching records and return the changed table data."""
-    matching_rows = [
-        row
+    """Return a new full table without modifying the input records."""
+    if ID_COLUMN in set_clause:
+        raise ValueError("Ошибка: Изменение столбца ID запрещено.")
+    return [
+        {**row, **set_clause} if matches_where(row, where_clause) else row.copy()
         for row in table_data
-        if all(row.get(name) == value for name, value in where_clause.items())
     ]
-    if ID_COLUMN in set_clause and matching_rows:
-        new_id = set_clause[ID_COLUMN]
-        other_ids = [row[ID_COLUMN] for row in table_data if row not in matching_rows]
-        if new_id < 1 or len(matching_rows) > 1 or new_id in other_ids:
-            raise ValueError("ID должен быть положительным и уникальным.")
-    for row in matching_rows:
-        row.update(set_clause)
-    return table_data
 
 
 @handle_db_errors
 @confirm_action("удаление записей")
 def delete(table_data, where_clause):
-    """Remove matching records after user confirmation."""
-    return [
-        row
-        for row in table_data
-        if not all(row.get(name) == value for name, value in where_clause.items())
-    ]
+    """Return remaining records after confirmation, leaving input untouched."""
+    return [row.copy() for row in table_data if not matches_where(row, where_clause)]

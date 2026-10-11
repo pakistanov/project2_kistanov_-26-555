@@ -1,6 +1,6 @@
 [project]
-name = "primitive-db"
-version = "0.4.1"
+name = "project-2-kistanov-26-555"
+version = "0.4.2"
 description = "Учебная консольная база данных"
 readme = "README.md"
 authors = [
@@ -19,6 +19,9 @@ project = "primitive_db.main:main"
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "primitive_db"
 
 [dependency-groups]
 dev = [

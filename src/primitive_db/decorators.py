@@ -21,7 +21,7 @@ def handle_db_errors(func):
         except KeyError as error:
             print(f"Ошибка: Таблица или столбец {error} не найден.")
         except ValueError as error:
-            print(f"Ошибка валидации: {error}")
+            print(error)
         except Exception as error:
             print(f"Произошла непредвиденная ошибка: {error}")
         return None
@@ -76,7 +76,10 @@ def create_cacher():
     def cache_result(key, value_func):
         """Reuse a stored result or compute it once for a new key."""
         if key not in cache:
-            cache[key] = value_func()
+            value = value_func()
+            if value is None:
+                return None
+            cache[key] = value
         return cache[key]
 
     return cache_result
