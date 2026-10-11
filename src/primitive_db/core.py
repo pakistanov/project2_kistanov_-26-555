@@ -1,3 +1,5 @@
+from primitive_db.utils import load_table_data
+
 SUPPORTED_TYPES = {"int", "str", "bool"}
 
 
@@ -49,3 +51,73 @@ def drop_table(metadata, table_name):
     del metadata[table_name]
     print(f'Таблица "{table_name}" успешно удалена.')
     return metadata
+
+
+def get_schema(metadata, table_name):
+    """Return column names and types for an existing table."""
+    if table_name not in metadata:
+        raise ValueError(f'Таблица "{table_name}" не существует.')
+    return dict(column.split(":") for column in metadata[table_name])
+
+
+def validate_clause(metadata, table_name, clause):
+    """Validate column names and exact Python types against the schema."""
+    schema = get_schema(metadata, table_name)
+    python_types = {"int": int, "str": str, "bool": bool}
+    for name, value in clause.items():
+        if name not in schema:
+            raise ValueError(f'Столбец "{name}" не существует.')
+        if type(value) is not python_types[schema[name]]:
+            raise ValueError(
+                f'Столбец "{name}" требует тип {schema[name]}, '
+                f"получено значение {value!r}."
+            )
+
+
+def insert(metadata, table_name, values):
+    """Validate values and append a record with an automatically generated ID."""
+    schema = get_schema(metadata, table_name)
+    columns = [name for name in schema if name != "ID"]
+    if len(values) != len(columns):
+        raise ValueError(
+            f"Ожидается {len(columns)} значений без ID, получено {len(values)}."
+        )
+    record = dict(zip(columns, values))
+    validate_clause(metadata, table_name, record)
+    data = load_table_data(table_name)
+    new_id = max((row["ID"] for row in data), default=0) + 1
+    data.append({"ID": new_id, **record})
+    return data
+
+
+def select(table_data, where_clause=None):
+    """Return all rows or rows matching every equality in the condition."""
+    if where_clause is None:
+        return list(table_data)
+    return [
+        row
+        for row in table_data
+        if all(row.get(name) == value for name, value in where_clause.items())
+    ]
+
+
+def update(table_data, set_clause, where_clause):
+    """Update matching records and return the changed table data."""
+    matching_rows = select(table_data, where_clause)
+    if "ID" in set_clause and matching_rows:
+        new_id = set_clause["ID"]
+        other_ids = [row["ID"] for row in table_data if row not in matching_rows]
+        if new_id < 1 or len(matching_rows) > 1 or new_id in other_ids:
+            raise ValueError("ID должен быть положительным и уникальным.")
+    for row in matching_rows:
+        row.update(set_clause)
+    return table_data
+
+
+def delete(table_data, where_clause):
+    """Remove matching records and return the remaining rows."""
+    return [
+        row
+        for row in table_data
+        if not all(row.get(name) == value for name, value in where_clause.items())
+    ]
